@@ -17,6 +17,148 @@ export function estLambertToWgs84(x: number, y: number): [number, number] {
   return [lng, lat];
 }
 
+// ── EHR (Ehitisregister / Building Register) live API ─────────────────
+// Verified live June 2026: livekluster.ehr.ee hosts ~14 v2/v3 microservices
+// discovered by mining the swagger UI JS bundle.
+// Public endpoints, no auth, returns full building record.
+// Join key: ehr_code (returned by In-AKS as the address `tunnus` field)
+const EHR_BUILDING = "https://livekluster.ehr.ee/api/building/v2/buildingData";
+
+export type EhrEnergy = {
+  energiaKlass: string | null;
+  energiaValjastKp: string | null;
+  energiaKehtibKuniKp: string | null;
+  energiaKaalKasutus: string | null; // kWh/m²/year
+  tarnEn: string | null; // total kWh
+  tarnEnKK: string | null; // heating kWh
+  kytteTyypTxt: string | null; // "kaugküte" / "elekter" / etc.
+  tarnEnKKYhik: string | null;
+};
+
+export type EhrBuilding = {
+  ehr_code: string;
+  taisaadress: string;
+  nimetus: string | null;
+  seisund: string | null;
+  rajatisHoone: string | null; // "H" = hoone, "R" = rajatis
+  esmaneKasutus: string | null; // YYYY (kasutusluba year)
+  // From ehitisePohiandmed
+  ehAlustKp: string | null;     // construction start
+  tubadeArv: number | null;
+  ehitisalunePind: number | null; // footprint m²
+  suletud_netopind: number | null; // net area m²
+  mahtBruto: number | null;       // volume m³
+  minKorrusteArv: number | null;
+  maxKorrusteArv: number | null;
+  lift: string | null;
+  // From ehitiseEnergiamargised
+  energy: EhrEnergy[];
+  // From ehitiseTehnilisedNaitajad
+  technical: { klNimetus: string; nimetus: string; lisavaartus: string | null }[];
+  // Related cadastral units (join key → cadastre API)
+  katastriyksused: { katastritunnus: string; taisaadress: string }[];
+};
+
+export async function getBuilding(ehrCode: string, signal?: AbortSignal): Promise<EhrBuilding | null> {
+  if (!ehrCode) return null;
+  const u = new URL(EHR_BUILDING);
+  u.searchParams.set("ehr_code", ehrCode);
+  try {
+    const r = await fetch(u.toString(), {
+      signal,
+      headers: { Accept: "application/json" },
+    });
+    if (r.status === 404 || r.status === 400) return null;
+    if (!r.ok) throw new Error(`EHR building API failed: ${r.status}`);
+    const j = await r.json();
+    return parseEhrBuilding(j);
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") return null;
+    // EHR may be behind Cloudflare challenge; surface error to caller
+    throw e;
+  }
+}
+
+function parseEhrBuilding(j: { ehitis?: Record<string, unknown> }): EhrBuilding | null {
+  const e = j?.ehitis;
+  if (!e || typeof e !== "object") return null;
+  const andmed = (e.ehitiseAndmed ?? {}) as Record<string, unknown>;
+  const pohi = (e.ehitisePohiandmed ?? {}) as Record<string, unknown>;
+  const enRaw = (e.ehitiseEnergiamargised ?? {}) as { energiamargis?: unknown };
+  const tehnRaw = (e.ehitiseTehnilisedNaitajad ?? {}) as { tehnilineNaitaja?: unknown };
+
+  const en = Array.isArray(enRaw.energiamargis) ? enRaw.energiamargis : enRaw.energiamargis ? [enRaw.energiamargis] : [];
+
+  const energy: EhrEnergy[] = (en as Record<string, unknown>[]).map((m) => {
+    // pull primary heating info from energiakasutused.energiaKandja
+    const kands = (m.energiakasutused as { energiaKandja?: unknown })?.energiaKandja;
+    const kArr = Array.isArray(kands) ? kands : kands ? [kands] : [];
+    // prefer heating (kytteLiik=KÜTE) if present, else first
+    const heating = (kArr as Record<string, unknown>[]).find((k) => k.kytteLiik === "KYTE") || (kArr as Record<string, unknown>[])[0];
+    return {
+      energiaKlass: (m.energiaKlass as string) ?? null,
+      energiaValjastKp: (m.energiaValjastKp as string) ?? null,
+      energiaKehtibKuniKp: (m.energiaKehtibKuniKp as string) ?? null,
+      energiaKaalKasutus: (m.energiaKaalKasutus as string) ?? null,
+      tarnEn: (heating?.tarnEn as string) ?? null,
+      tarnEnKK: (heating?.tarnEnKK as string) ?? null,
+      kytteTyypTxt: (heating?.kytteTyypTxt as string) ?? null,
+      tarnEnKKYhik: (heating?.tarnEnKKYhik as string) ?? null,
+    };
+  });
+
+  const tech = Array.isArray(tehnRaw.tehnilineNaitaja)
+    ? (tehnRaw.tehnilineNaitaja as Record<string, unknown>[])
+    : tehnRaw.tehnilineNaitaja
+      ? [tehnRaw.tehnilineNaitaja as Record<string, unknown>]
+      : [];
+  const technical = (tech as Record<string, unknown>[]).map((t) => ({
+    klNimetus: (t.klNimetus as string) ?? "",
+    nimetus: (t.nimetus as string) ?? "",
+    lisavaartus: (t.lisavaartus as string) ?? null,
+  }));
+
+  // Related cadastral units — join key to cadastre API
+  const katRaw = (e.ehitiseKatastriyksused ?? {}) as { ehitiseKatastriyksus?: unknown };
+  const kat = Array.isArray(katRaw.ehitiseKatastriyksus)
+    ? (katRaw.ehitiseKatastriyksus as Record<string, unknown>[])
+    : katRaw.ehitiseKatastriyksus
+      ? [katRaw.ehitiseKatastriyksus as Record<string, unknown>]
+      : [];
+  const katastriyksused = (kat as Record<string, unknown>[])
+    .map((k) => ({
+      katastritunnus: (k.katastritunnus as string) ?? "",
+      taisaadress: (k.taisaadress as string) ?? "",
+    }))
+    .filter((k) => k.katastritunnus);
+
+  return {
+    ehr_code: (andmed.ehrKood as string) ?? "",
+    taisaadress: (andmed.taisaadress as string) ?? "",
+    nimetus: (andmed.nimetus as string) ?? null,
+    seisund: (andmed.seisundTxt as string) ?? null,
+    rajatisHoone: (andmed.rajatishoonetxt as string) ?? null,
+    esmaneKasutus: andmed.esmaneKasutus != null ? String(andmed.esmaneKasutus) : null,
+    ehAlustKp: (pohi.ehAlustKp as string) ?? null,
+    tubadeArv: numOrNull(pohi.tubadeArv),
+    ehitisalunePind: numOrNull(pohi.ehitisalunePind),
+    suletud_netopind: numOrNull(pohi.suletud_netopind),
+    mahtBruto: numOrNull(pohi.mahtBruto),
+    minKorrusteArv: numOrNull(pohi.minKorrusteArv),
+    maxKorrusteArv: numOrNull(pohi.maxKorrusteArv),
+    lift: (pohi.lift as string) ?? null,
+    energy,
+    technical,
+    katastriyksused,
+  };
+}
+
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ── In-AKS address search (live) ──────────────────────────────────────
 // Verified: ?address=<text> returns { addresses: [...] }
 // Param name is English "address" (not "aadress"). Each item has:
@@ -36,6 +178,7 @@ export type AksAddress = {
   viitepunkt_b: number; // WGS84 lat
   liik: string;         // E=building, 1=county, 2=street, 3=settlement...
   liikVal: string;
+  tunnus?: string;      // for buildings, this is the EHR code
   primary?: string;
 };
 
@@ -81,6 +224,11 @@ export type CadastreRecord = {
 };
 
 export async function getCadastre(id: string, signal?: AbortSignal): Promise<CadastreRecord> {
+  // Cadastral id format: {county}{district}:{group}:{parcel}, e.g. "78401:001:0215"
+  // Reject EHR codes (all digits, no colons) — they 500 in the cadastre API
+  if (!id.includes(":")) {
+    throw new Error(`Not a cadastral id (no colons): ${id}. Use EHR code via getBuilding() first.`);
+  }
   const r = await fetch(`${CADASTRE}/${encodeURIComponent(id)}`, {
     signal,
     headers: { Accept: "application/json" },
