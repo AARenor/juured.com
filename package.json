@@ -1,6 +1,6 @@
 {
-  "name": "estprop",
-  "version": "0.1.0",
+  "name": "juured.com",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3010",
@@ -12,7 +12,6 @@
     "next": "14.2.18",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "maplibre-gl": "4.7.1",
     "proj4": "2.11.0"
   },
   "devDependencies": {

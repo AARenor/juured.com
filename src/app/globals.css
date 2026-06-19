@@ -2,33 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fonts via Google Fonts — chosen for character and pair well together. */
+/* Display: Fraunces (variable serif with optical sizes, very editorial) */
+/* Body: Inter Tight (humanist sans, very tight tracking) */
+/* Mono: JetBrains Mono */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  --rule: #e5e4dd;
 }
 
-html, body { background: #0b0d10; color: #e6eaf0; }
-body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+html, body {
+  background: #fafaf7;
+  color: #1a1b18;
+  font-family: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11", "kern";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-/* MapLibre overrides for dark UI */
-.maplibregl-canvas { outline: none; }
-.maplibregl-ctrl-attrib {
-  background: rgba(11,13,16,0.7) !important;
-  color: #c0c8d2 !important;
-  font-size: 10px !important;
-}
-.maplibregl-ctrl-attrib a { color: #93c5fd !important; }
-.maplibregl-ctrl-group {
-  background: #13171c !important;
-  border: 1px solid #222831 !important;
-}
-.maplibregl-ctrl-group button { color: #e6eaf0 !important; }
-.maplibregl-popup-content {
-  background: #13171c !important;
-  color: #e6eaf0 !important;
-  border: 1px solid #222831 !important;
-}
-.maplibregl-popup-tip { border-top-color: #13171c !important; border-bottom-color: #13171c !important; }
+/* Typography refinement */
+h1, h2, h3, h4 { font-feature-settings: "ss01", "kern", "liga"; }
+body { line-height: 1.55; }
 
-/* utility */
+::selection { background: #0e0f0c; color: #fafaf7; }
+
+/* Eyebrow / small-cap label utility */
+.eyebrow {
+  font-family: "Inter Tight", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6b6f6a;
+}
+
+/* Editorial figure number */
+.tabnum { font-variant-numeric: tabular-nums; }
+
+/* Display headings — variable axis gives us nice thin→bold */
+.display {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+  font-weight: 380;
+  letter-spacing: -0.025em;
+  line-height: 1.02;
+}
+
+.display-tight {
+  font-family: "Fraunces", ui-serif, Georgia, serif;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  font-weight: 420;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+
+/* Subtle reveal for sections of the property sheet */
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.sheet-in { animation: sheet-in 0.45s cubic-bezier(0.2, 0.6, 0.2, 1) both; }
+.sheet-in-1 { animation-delay: 0.04s; }
+.sheet-in-2 { animation-delay: 0.10s; }
+.sheet-in-3 { animation-delay: 0.16s; }
+.sheet-in-4 { animation-delay: 0.22s; }
+.sheet-in-5 { animation-delay: 0.28s; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in, .sheet-in-1, .sheet-in-2, .sheet-in-3, .sheet-in-4, .sheet-in-5 {
+    animation: none;
+  }
+}
+
+/* Hairline divider — used between sheet sections */
+.hairline { border-top: 1px solid var(--rule); }
+
+/* Faint dotted leader for the readiness checklist */
+.leader {
+  background-image: radial-gradient(circle, #c4c2b8 1px, transparent 1px);
+  background-size: 6px 100%;
+  background-repeat: repeat-x;
+  background-position: 0 0.85em;
+}
+
+/* Native form reset */
+input, button, select, textarea { font: inherit; color: inherit; }
+input:focus, button:focus, select:focus, textarea:focus { outline: none; }
+
+/* Hide scrollbars on dropdowns */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

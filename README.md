@@ -1,8 +1,8 @@
-# estprop
+# juured.com
 
 **Estonian property decisions, not listings.**
 
-🔗 **Live demo:** [https://estprop.vercel.app](https://estprop.vercel.app)
+🔗 **Live demo:** [https://juured.com](https://juured.com) (Vercel alias pending: `https://estprop.vercel.app`)
 
 Type any Estonian address. Get the data kv.ee doesn't show you. Built entirely on free, no-auth public Estonian open-data APIs.
 

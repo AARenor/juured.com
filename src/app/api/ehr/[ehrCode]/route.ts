@@ -15,7 +15,7 @@ export async function GET(
   try {
     const r = await fetch(
       `https://livekluster.ehr.ee/api/building/v2/buildingData?ehr_code=${encodeURIComponent(ehrCode)}`,
-      { headers: { Accept: "application/json", "User-Agent": "estprop/1.0 (+https://estprop.vercel.app)" } },
+      { headers: { Accept: "application/json", "User-Agent": "juured.com/1.0 (+https://juured.com)" } },
     );
     if (r.status === 404 || r.status === 400) {
       return NextResponse.json({ error: "EHR record not found" }, { status: 404 });

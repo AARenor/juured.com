@@ -1,48 +1,44 @@
 "use client";
 
 import type { CadastreRecord, EhrBuilding } from "@/lib/estdata";
-import { estLambertToWgs84 } from "@/lib/estdata";
 
 type Props = {
   c: CadastreRecord;
-  center: [number, number];
   ehr: EhrBuilding | null;
   ehrLoading: boolean;
   ehrAttempted: boolean;
   ehrError: string | null;
 };
 
-function LandUsePill({ siht }: { siht: string | null }) {
-  if (!siht) return null;
-  const color =
-    siht === "ELAMUMAA"
-      ? "bg-accent2/20 text-accent2 border-accent2/40"
-      : siht.includes("METS") || siht.includes("MAHE")
-        ? "bg-emerald-700/20 text-emerald-400 border-emerald-700/40"
-        : "bg-warn/20 text-warn border-warn/40";
+function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "green" | "amber" | "red" }) {
+  const tones = {
+    neutral: "border-rule text-ink/80",
+    green: "border-accent2/40 text-accent2",
+    amber: "border-warn/40 text-warn",
+    red: "border-bad/40 text-bad",
+  };
   return (
-    <span className={`inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${color}`}>
-      {siht}
+    <span
+      className={`inline-flex items-center text-[10.5px] font-semibold uppercase tracking-[0.14em]
+                  px-2 py-1 border ${tones[tone]}`}
+    >
+      {children}
     </span>
   );
 }
 
+function LandUsePill({ siht }: { siht: string | null }) {
+  if (!siht) return null;
+  if (siht === "ELAMUMAA") return <Pill tone="green">{siht}</Pill>;
+  if (siht.includes("METS") || siht.includes("MAHE")) return <Pill tone="green">{siht}</Pill>;
+  return <Pill tone="amber">{siht}</Pill>;
+}
+
 function EnergyPill({ klass }: { klass: string | null }) {
   if (!klass) return null;
-  // A–C = green, D–E = yellow, F–G = orange, H = red
   const good = ["A", "B", "C"].includes(klass);
   const mid = ["D", "E"].includes(klass);
-  const color = good
-    ? "bg-accent2/20 text-accent2 border-accent2/40"
-    : mid
-      ? "bg-warn/20 text-warn border-warn/40"
-      : "bg-bad/20 text-bad border-bad/40";
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border font-mono ${color}`}>
-      <span className="font-bold">{klass}</span>
-      <span className="opacity-70">energy class</span>
-    </span>
-  );
+  return <Pill tone={good ? "green" : mid ? "amber" : "red"}>{klass}</Pill>;
 }
 
 function fmtArea(m2: number) {
@@ -50,12 +46,10 @@ function fmtArea(m2: number) {
   return `${m2.toLocaleString("et-EE")} m²`;
 }
 
-function fmtDate(s: string | null) {
+function fmtYear(s: string | null) {
   if (!s) return "—";
-  // EHR returns ISO-ish strings: "2012-02-06T00:00:00.000" or just "1957"
-  const yyyy = s.match(/^(\d{4})/);
-  if (yyyy) return yyyy[1];
-  return s;
+  const m = s.match(/^(\d{4})/);
+  return m ? m[1] : s;
 }
 
 function ageOf(yearStr: string | null): number | null {
@@ -65,226 +59,223 @@ function ageOf(yearStr: string | null): number | null {
   return new Date().getFullYear() - y;
 }
 
-export default function PropertyCard({ c, center, ehr, ehrLoading, ehrAttempted, ehrError }: Props) {
-  const [lng, lat] = center;
-  const year = fmtDate(ehr?.esmaneKasutus ?? null);
+function fmtMoney(n: number | null) {
+  if (n == null) return "—";
+  return `€${n.toLocaleString("et-EE")}`;
+}
+
+export default function PropertyCard({ c, ehr, ehrLoading, ehrAttempted, ehrError }: Props) {
+  const year = fmtYear(ehr?.esmaneKasutus ?? null);
   const age = ageOf(year);
   const panel = !!ehr?.technical.some(
-    (t) => t.klNimetus.toLowerCase().includes("kande") && t.nimetus.toLowerCase().includes("paneel")
+    (t) =>
+      t.klNimetus.toLowerCase().includes("kande") &&
+      t.nimetus.toLowerCase().includes("paneel"),
   );
   const energy = ehr?.energy[0] ?? null;
 
-  // Mortgage readiness flags — driven by REAL data
-  const checks: { ok: boolean; text: string; warn?: string }[] = [
-    { ok: true, text: "Cadastral record present (you can mortgage it)" },
-    { ok: true, text: `Ownership form: ${c.omvorm || "—"}` },
+  // Readiness rows — flat list, plain copy, no marketing tone
+  type Row = { mark: "ok" | "warn" | "—" | "?"; text: string };
+  const readiness: Row[] = [
     {
-      ok: !!ehr && ehr.esmaneKasutus != null,
+      mark: "ok",
+      text: "Cadastral record present — the property exists in the land registry and can be mortgaged.",
+    },
+    {
+      mark: "ok",
+      text: `Ownership form: ${c.omvorm || "—"}.`,
+    },
+    {
+      mark:
+        ehr == null && ehrLoading
+          ? "?"
+          : ehr == null && ehrAttempted
+            ? "—"
+            : ehr == null
+              ? "—"
+              : ehr.esmaneKasutus == null
+                ? "warn"
+                : "ok",
       text:
         ehr == null && ehrLoading
-          ? "kasutusluba (occupancy permit) — loading from EHR…"
+          ? "kasutusluba (occupancy permit) — loading from building register…"
           : ehr == null && ehrAttempted
-            ? "kasutusluba not retrieved (lookup failed) — verify via Maa-amet"
+            ? "kasutusluba not retrieved — verify via Maa-amet."
             : ehr == null
-              ? "kasutusluba — needs building address to fetch from EHR"
+              ? "kasutusluba — needs a building-level lookup to fetch from EHR."
               : ehr.esmaneKasutus == null
-                ? "⚠️ kasutusluba NOT FOUND — banks may refuse mortgage"
-                : `✅ kasutusluba issued: ${fmtDate(ehr.esmaneKasutus)}`,
+                ? "kasutusluba NOT FOUND on file — many banks will not issue a mortgage."
+                : `kasutusluba issued ${fmtYear(ehr.esmaneKasutus)}.`,
     },
     {
-      ok: false,
+      mark:
+        energy?.energiaKlass && ["A", "B"].includes(energy.energiaKlass)
+          ? "ok"
+          : energy?.energiaKlass
+            ? "warn"
+            : ehrAttempted
+              ? "—"
+              : "—",
       text:
         energy?.energiaKlass && ["A", "B"].includes(energy.energiaKlass)
-          ? `✅ Energy class ${energy.energiaKlass} — green mortgage eligible at LHV / Swedbank / SEB`
+          ? `Energy class ${energy.energiaKlass} — eligible for a green mortgage at LHV, Swedbank, SEB.`
           : energy?.energiaKlass
-            ? `⚠️ Energy class ${energy.energiaKlass} — not green-mortgage eligible (need A or B)`
-            : ehrAttempted
-              ? "No energy class on record"
-              : "Energy class — needs building address to fetch from EHR",
+            ? `Energy class ${energy.energiaKlass} — not green-mortgage eligible (need A or B).`
+            : "Energy class not on record.",
     },
     {
-      ok: age == null || age < 30,
+      mark: age == null ? "—" : age < 30 ? "ok" : "warn",
       text:
         age == null
-          ? ehrAttempted
-            ? "Build year not on record"
-            : "Build year — needs building address to fetch from EHR"
+          ? "Build year not on record."
           : age < 30
-            ? `✅ Built ${year} (${age}y old) — modern, low maintenance risk`
-            : `⚠️ Built ${year} (${age}y old) — request structural survey + winter utility invoices`,
-      ...(panel ? { warn: "1960s–80s panel building detected — request asbestos + structural review" } : {}),
+            ? `Built ${year} (${age} years old) — modern, low maintenance risk.`
+            : `Built ${year} (${age} years old) — request a structural survey and the last two winter utility invoices.`,
     },
   ];
+  if (panel) {
+    readiness.push({
+      mark: "warn",
+      text: "1960s–80s prefabricated panel detected — ask the seller for an asbestos and structural review.",
+    });
+  }
+
+  const markChar = (m: Row["mark"]) =>
+    m === "ok" ? "✓" : m === "warn" ? "!" : m === "?" ? "…" : "—";
+  const markTone = (m: Row["mark"]) =>
+    m === "ok" ? "text-accent2" : m === "warn" ? "text-warn" : m === "?" ? "text-faint" : "text-faint";
 
   return (
-    <div className="bg-panel border border-line rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-line">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-fg leading-tight">{c.tais_aadress}</h2>
-            <div className="text-xs text-muted mt-0.5 font-mono">
-              {c.tunnus}
-              {ehr && <span className="ml-2 opacity-70">ehr {ehr.ehr_code}</span>}
-            </div>
-          </div>
-          <a
-            href={`https://geoportaal.maaamet.ee/est/teenused/aadress/${encodeURIComponent(c.tunnus)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-accent hover:underline shrink-0"
-          >
-            ↗ Maa-amet
-          </a>
+    <article className="max-w-sheet mx-auto">
+      {/* ==== TOP META: ids + links ==== */}
+      <header className="flex items-baseline justify-between gap-4 flex-wrap sheet-in">
+        <div>
+          <p className="eyebrow">Property sheet</p>
+          <h1 className="display mt-2 text-ink text-balance">{c.tais_aadress}</h1>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <LandUsePill siht={c.siht1} />
-          <LandUsePill siht={c.siht2} />
-          <EnergyPill klass={energy?.energiaKlass ?? null} />
-          {c.omvorm && (
-            <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border bg-panel text-fg border-line">
-              {c.omvorm}
-            </span>
-          )}
-          {c.kinnistu && (
-            <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border bg-panel text-fg border-line">
-              {c.kinnistu}
-            </span>
-          )}
-          {ehr?.rajatisHoone && (
-            <span className="inline-block text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border bg-panel text-fg border-line">
-              {ehr.rajatisHoone}
-            </span>
-          )}
-        </div>
+        <a
+          href={`https://geoportaal.maaamet.ee/est/teenused/aadress/${encodeURIComponent(c.tunnus)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="eyebrow text-ink hover:text-accent transition-colors whitespace-nowrap"
+        >
+          View on Maa-amet ↗
+        </a>
+      </header>
+
+      {/* ==== PILL ROW: land use + energy + ownership ==== */}
+      <div className="mt-5 flex flex-wrap gap-2 sheet-in sheet-in-1">
+        <LandUsePill siht={c.siht1} />
+        <LandUsePill siht={c.siht2} />
+        <EnergyPill klass={energy?.energiaKlass ?? null} />
+        {c.omvorm && <Pill>{c.omvorm}</Pill>}
+        {c.kinnistu && <Pill>{c.kinnistu}</Pill>}
+        {ehr?.rajatisHoone && <Pill>{ehr.rajatisHoone}</Pill>}
+        {energy?.energiaKlass && ["A", "B"].includes(energy.energiaKlass) && (
+          <Pill tone="green">Green mortgage eligible</Pill>
+        )}
       </div>
 
-      {/* Cadastral key facts */}
-      <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
-        <Fact label="Land area" value={fmtArea(c.pindala)} />
-        <Fact label="Tax value" value={c.maks_hind ? `€${c.maks_hind.toLocaleString("et-EE")}` : "—"} />
-        <Fact label="Cadastral reg." value={c.registreeritud} />
-        <Fact label="ADS OID" value={c.ads_oid} mono />
-      </div>
+      {/* ==== THE LEDGER: parcel + building + position in one tidy table ==== */}
+      <section className="mt-10 sheet-in sheet-in-2">
+        <p className="eyebrow">The ledger</p>
+        <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-10">
+          <Row label="Cadastral id (tunnus)" value={c.tunnus} mono />
+          {ehr && <Row label="EHR building id" value={ehr.ehr_code} mono />}
+          <Row label="Parcel area" value={fmtArea(c.pindala)} />
+          <Row label="Tax value" value={fmtMoney(c.maks_hind)} />
+          <Row label="Cadastral registration" value={c.registreeritud} />
+          <Row label="ADS object id" value={c.ads_oid} mono />
+        </dl>
+      </section>
 
-      {/* Building facts (from EHR) */}
-      <div className="px-5 py-4 border-b border-line">
-        <SectionTitle>Building (EHR live)</SectionTitle>
-        {ehrLoading && <p className="text-xs text-muted">Loading building data from Ehitisregister…</p>}
+      {/* ==== BUILDING section: EHR-driven ==== */}
+      <section className="mt-12 sheet-in sheet-in-3">
+        <p className="eyebrow">The building</p>
+        {ehrLoading && (
+          <p className="mt-3 text-sm text-muted">Loading from the building register…</p>
+        )}
         {ehrError && (
-          <p className="text-xs text-bad mb-2">
-            EHR error: {ehrError}. <span className="text-muted">EHR is behind Cloudflare; the page still works.</span>
+          <p className="mt-3 text-sm text-bad">
+            {ehrError}.{" "}
+            <span className="text-muted">The building register is behind Cloudflare; the parcel data above is still valid.</span>
           </p>
         )}
         {ehr && !ehrLoading && (
-          <>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">First use (kasutusluba)</div>
-                <div className="text-fg">{fmtDate(ehr.esmaneKasutus)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">Built</div>
-                <div className="text-fg">{fmtDate(ehr.ehAlustKp)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">Net area</div>
-                <div className="text-fg">
-                  {ehr.suletud_netopind != null ? fmtArea(ehr.suletud_netopind) : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">Volume (bruto)</div>
-                <div className="text-fg">
-                  {ehr.mahtBruto != null ? `${ehr.mahtBruto.toLocaleString("et-EE")} m³` : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">Floors</div>
-                <div className="text-fg">
-                  {ehr.minKorrusteArv != null && ehr.maxKorrusteArv != null
-                    ? `${ehr.minKorrusteArv}–${ehr.maxKorrusteArv}`
-                    : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted">Heating</div>
-                <div className="text-fg">
-                  {energy?.kytteTyypTxt ?? "—"}
-                  {energy?.tarnEnKK && energy?.tarnEnKKYhik && (
-                    <span className="text-muted text-xs ml-1">
-                      ({Number(energy.tarnEnKK).toLocaleString("et-EE")} {energy.tarnEnKKYhik})
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {energy?.energiaKaalKasutus && (
-              <div className="mt-3 text-xs text-muted">
-                Energy use: <span className="text-fg">{energy.energiaKaalKasutus} kWh/m²/year</span>
-                {energy.energiaKehtibKuniKp && (
-                  <span className="ml-2">· cert valid until {fmtDate(energy.energiaKehtibKuniKp)}</span>
-                )}
-              </div>
-            )}
-          </>
+          <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-10">
+            <Row label="First use (kasutusluba)" value={fmtYear(ehr.esmaneKasutus)} />
+            <Row label="Built" value={fmtYear(ehr.ehAlustKp)} />
+            <Row label="Net area" value={ehr.suletud_netopind != null ? fmtArea(ehr.suletud_netopind) : "—"} />
+            <Row label="Gross volume" value={ehr.mahtBruto != null ? `${ehr.mahtBruto.toLocaleString("et-EE")} m³` : "—"} />
+            <Row
+              label="Floors"
+              value={ehr.minKorrusteArv != null && ehr.maxKorrusteArv != null
+                ? `${ehr.minKorrusteArv}${ehr.minKorrusteArv !== ehr.maxKorrusteArv ? `–${ehr.maxKorrusteArv}` : ""}`
+                : "—"}
+            />
+            <Row
+              label="Heating"
+              value={
+                energy?.kytteTyypTxt
+                  ? `${energy.kytteTyypTxt}${energy.tarnEnKK ? ` · ${Number(energy.tarnEnKK).toLocaleString("et-EE")} kWh` : ""}`
+                  : "—"
+              }
+            />
+          </dl>
         )}
-      </div>
 
-      {/* Location */}
-      <div className="px-5 py-4 border-b border-line">
-        <SectionTitle>Location (WGS84)</SectionTitle>
-        <div className="grid grid-cols-2 gap-4">
-          <Fact label="Latitude" value={lat.toFixed(6)} mono />
-          <Fact label="Longitude" value={lng.toFixed(6)} mono />
-        </div>
-        <div className="text-xs text-muted mt-2">
-          Centroid (Lambert 3301): x {c.tsentroid_x.toFixed(2)}, y {c.tsentroid_y.toFixed(2)}
-        </div>
-      </div>
+        {energy?.energiaKaalKasutus && (
+          <p className="mt-4 text-sm text-muted">
+            Energy use: <span className="text-ink tabnum">{energy.energiaKaalKasutus}</span> kWh/m²/year
+            {energy.energiaKehtibKuniKp && (
+              <span className="ml-2">· certificate valid until {fmtYear(energy.energiaKehtibKuniKp)}</span>
+            )}
+          </p>
+        )}
+      </section>
 
-      {/* Market context — still v2 backlog */}
-      <div className="px-5 py-4 border-b border-line">
-        <SectionTitle>Market context</SectionTitle>
-        <p className="text-xs text-muted">
-          Asking vs. closed €/m², transaction history and AVM will appear here in v3
-          (Maa-amet <code className="text-fg">htraru</code> + kv.ee scrape).
-        </p>
-      </div>
-
-      {/* Mortgage-readiness checklist — driven by REAL data */}
-      <div className="px-5 py-4">
-        <SectionTitle>Mortgage-readiness checklist</SectionTitle>
-        <ul className="text-sm space-y-1.5">
-          {checks.map((ch, i) => (
+      {/* ==== READINESS — the differentiator, top of the page concern ==== */}
+      <section className="mt-12 sheet-in sheet-in-4">
+        <p className="eyebrow">Mortgage-readiness</p>
+        <ol className="mt-3 divide-y divide-rule">
+          {readiness.map((r, i) => (
             <li
               key={i}
-              className={ch.ok ? "text-accent2" : "text-warn"}
+              className="flex items-baseline gap-4 py-3 text-[15.5px] leading-snug"
             >
-              {ch.text}
-              {ch.warn && <div className="ml-4 text-xs text-bad/80">↳ {ch.warn}</div>}
+              <span
+                aria-hidden="true"
+                className={`font-mono text-sm w-5 shrink-0 ${markTone(r.mark)}`}
+              >
+                {markChar(r.mark)}
+              </span>
+              <span className="text-ink">{r.text}</span>
             </li>
           ))}
-        </ul>
-      </div>
-    </div>
+        </ol>
+      </section>
+
+      {/* ==== FOOTER: provenance + market-context note ==== */}
+      <footer className="mt-12 sheet-in sheet-in-5">
+        <p className="eyebrow">What this sheet does not show</p>
+        <p className="mt-3 text-sm text-muted max-w-prose">
+          Median closed €/m², transaction history, and an AVM are not yet wired in. The new
+          Maa-amet transaction database (live since 11 May 2026) and a logged-out scrape of
+          kv.ee are queued for the next release.
+        </p>
+        <p className="mt-8 text-[11px] eyebrow text-faint">
+          Source data · In-AKS · Cadastre X-Road · Ehitisregister (live). Not a substitute for legal or financial advice.
+        </p>
+      </footer>
+    </article>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function Row({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <h3 className="text-[11px] uppercase tracking-wider text-muted mb-2 font-semibold">
-      {children}
-    </h3>
-  );
-}
-
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="px-5 py-3">
-      <div className="text-[10px] uppercase tracking-wider text-muted mb-0.5">{label}</div>
-      <div className={`text-sm text-fg ${mono ? "font-mono" : ""}`}>{value}</div>
+    <div className="grid grid-cols-[14rem_1fr] sm:grid-cols-[12rem_1fr] gap-x-4 py-2.5 border-b border-rule">
+      <dt className="eyebrow text-muted self-center">{label}</dt>
+      <dd className={`text-ink ${mono ? "font-mono text-[13.5px]" : ""} self-center`}>{value}</dd>
     </div>
   );
 }

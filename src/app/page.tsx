@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useState } from "react";
 import AddressSearch from "@/components/AddressSearch";
 import PropertyCard from "@/components/PropertyCard";
@@ -14,10 +13,7 @@ import {
   type EhrBuilding,
 } from "@/lib/estdata";
 
-const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
-
 export default function Home() {
-  const [center, setCenter] = useState<[number, number] | null>(null);
   const [cadastre, setCadastre] = useState<CadastreRecord | null>(null);
   const [ehr, setEhr] = useState<EhrBuilding | null>(null);
   const [ehrLoading, setEhrLoading] = useState(false);
@@ -27,9 +23,6 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Chain: pick an address → if it's a building (liik=E), look up cadastre
-  // by adob_id via the EHR API (which exposes adsOid), then the cadastral
-  // record by tunnus from the building.
   async function handleSelect(a: AksAddress) {
     setLoading(true);
     setEhrLoading(true);
@@ -39,12 +32,7 @@ export default function Home() {
     setPicked(a);
     setEhr(null);
     setCadastre(null);
-    setCenter([a.viitepunkt_l, a.viitepunkt_b]);
 
-    // For buildings (liik=E), tunnus is the EHR code. We must fetch EHR
-    // first to discover the cadastre join key (katastritunnus). For
-    // non-buildings, we don't have a direct cadastre join — only show
-    // the address and map.
     if (a.tunnus && a.liik === "E") {
       setEhrAttempted(true);
       try {
@@ -55,24 +43,18 @@ export default function Home() {
           try {
             const cad = await getCadastre(ktunnus);
             setCadastre(cad);
-            const [lng, lat] = estLambertToWgs84(cad.tsentroid_x, cad.tsentroid_y);
-            setCenter([lng, lat]);
           } catch (e) {
-            // Cadastre lookup failed — non-fatal, we still have EHR data
-            const msg = (e as Error)?.message ?? String(e);
-            setErr(`Cadastre: ${msg}`);
+            setErr(`Cadastre: ${(e as Error)?.message ?? e}`);
           }
         }
       } catch (e) {
-        const msg = (e as Error)?.message ?? String(e);
-        setEhrError(msg);
+        setEhrError((e as Error)?.message ?? String(e));
       } finally {
         setEhrLoading(false);
       }
     } else {
       setEhrLoading(false);
     }
-
     setLoading(false);
   }
 
@@ -86,19 +68,13 @@ export default function Home() {
     setEhr(null);
     setCadastre(null);
 
-    // Detect input type: cadastral id has colons, EHR code is all digits
     const isCadastral = input.includes(":");
     let ehrCode: string | null = null;
     let cadastralId: string | null = null;
-
-    if (isCadastral) {
-      cadastralId = input;
-    } else {
-      ehrCode = input;
-    }
+    if (isCadastral) cadastralId = input;
+    else ehrCode = input;
 
     try {
-      // Fetch EHR first if input is ehr_code (gives us the cadastre join key)
       if (ehrCode) {
         setEhrAttempted(true);
         try {
@@ -107,16 +83,11 @@ export default function Home() {
           if (b?.katastriyksused[0]?.katastritunnus) {
             cadastralId = b.katastriyksused[0].katastritunnus;
           }
-          // If we don't have cadastral join, try In-AKS to get map coords
-          // by searching the building's address
           if (!cadastralId && b?.taisaadress) {
             try {
               const r = await searchAddresses(b.taisaadress);
-              const ehitise = r.find((x) => x.tunnus === ehrCode);
-              if (ehitise) {
-                setCenter([ehitise.viitepunkt_l, ehitise.viitepunkt_b]);
-                setPicked(ehitise);
-              }
+              const m = r.find((x) => x.tunnus === ehrCode);
+              if (m) setPicked(m);
             } catch {}
           }
         } catch (e) {
@@ -127,12 +98,9 @@ export default function Home() {
       } else {
         setEhrLoading(false);
       }
-
       if (cadastralId) {
         const c = await getCadastre(cadastralId);
         setCadastre(c);
-        const [lng, lat] = estLambertToWgs84(c.tsentroid_x, c.tsentroid_y);
-        setCenter([lng, lat]);
       }
     } catch (e) {
       setErr((e as Error)?.message ?? String(e));
@@ -142,111 +110,133 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col">
-      <header className="border-b border-line bg-panel/40 backdrop-blur sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-4">
-          <a href="/" className="flex items-center gap-2 shrink-0">
-            <div className="w-7 h-7 rounded-md bg-gradient-to-br from-accent to-accent2 grid place-items-center text-bg font-bold text-sm">e</div>
-            <div className="font-semibold tracking-tight">estprop</div>
-            <span className="hidden sm:inline text-xs text-muted">· Estonian property decisions, not listings</span>
+    <>
+      {/* ============== TOP BAR ============== */}
+      <header className="border-b border-rule">
+        <div className="max-w-[72rem] mx-auto px-6 sm:px-10 py-4 flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2.5 group">
+            <span
+              aria-hidden="true"
+              className="grid place-items-center w-7 h-7 bg-ink text-paper font-display text-lg leading-none"
+            >
+              j
+            </span>
+            <span className="font-display text-[19px] text-ink tracking-tight">
+              juured.com
+            </span>
           </a>
-          <div className="flex-1 max-w-xl ml-auto">
-            <AddressSearch onSelect={handleSelect} />
-          </div>
+          <nav className="hidden sm:flex items-center gap-7 text-[13px] text-muted">
+            <a
+              href="https://github.com/AARenor/juured.com"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-ink transition-colors"
+            >
+              Source
+            </a>
+            <a
+              href="https://juured.com"
+              className="hover:text-ink transition-colors"
+            >
+              Live
+            </a>
+          </nav>
         </div>
       </header>
 
-      <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 grid lg:grid-cols-[1fr_480px] gap-6">
-        <section className="order-2 lg:order-1 h-[60vh] lg:h-[calc(100vh-180px)] lg:sticky lg:top-[88px]">
-          <MapView center={center} />
-          <div className="mt-2 text-[11px] text-muted leading-relaxed">
-            Basemap: © OpenStreetMap contributors. Building data: Ehitisregister (EHR, live).
-            Cadastral: Maa-amet X-Road. Not for navigation.
+      {/* ============== MASTHEAD ============== */}
+      <section className="border-b border-rule">
+        <div className="max-w-[72rem] mx-auto px-6 sm:px-10 pt-16 sm:pt-24 pb-12">
+          <p className="eyebrow">Estonian property decisions, not listings</p>
+          <h1 className="display mt-3 text-ink max-w-prose">
+            The data kv.ee doesn&rsquo;t show you,
+            <span className="text-faint"> for any Estonian address.</span>
+          </h1>
+          <p className="mt-5 text-muted max-w-prose text-[16.5px] leading-[1.55]">
+            Built from free, public Estonian open data: the address register, the
+            land cadastre, and the building register. Type an address to see
+            energy class, occupancy permits, and the mortgage-readiness signals
+            that buyers actually need.
+          </p>
+          <div className="mt-12">
+            <AddressSearch onSelect={handleSelect} />
           </div>
-        </section>
+        </div>
+      </section>
 
-        <aside className="order-1 lg:order-2 space-y-4">
-          {err && (
-            <div className="bg-bad/10 border border-bad/30 text-bad text-sm rounded-lg p-3">
-              {err}
-            </div>
-          )}
+      {/* ============== RESULT ============== */}
+      <main className="max-w-[72rem] mx-auto px-6 sm:px-10 py-14 sm:py-20">
+        {err && (
+          <div className="max-w-sheet mx-auto mb-10 border border-bad/30 bg-bad/[0.04] text-bad text-sm p-4">
+            {err}
+          </div>
+        )}
 
-          {loading && (
-            <div className="bg-panel border border-line text-muted text-sm rounded-lg p-4 text-center">
-              Loading…
-            </div>
-          )}
+        {loading && (
+          <p className="text-center eyebrow text-muted">Loading…</p>
+        )}
 
-          {!cadastre && !loading && (
-            <EmptyState onTryTunnus={handleTunnusLookup} />
-          )}
+        {!cadastre && !loading && !picked && <EmptyState onTryTunnus={handleTunnusLookup} />}
 
-          {cadastre && center && (
-            <PropertyCard
-              c={cadastre}
-              center={center}
-              ehr={ehr}
-              ehrLoading={ehrLoading}
-              ehrAttempted={ehrAttempted}
-              ehrError={ehrError}
-            />
-          )}
+        {picked && !cadastre && (
+          <div className="max-w-sheet mx-auto">
+            <p className="eyebrow text-muted">Address resolved</p>
+            <p className="display mt-2 text-ink">{picked.pikkaadress}</p>
+            <p className="mt-2 text-sm text-muted">
+              {picked.liikVal}. For a full property sheet, pick a <em>building</em> from the search
+              results, or look up a cadastral id below.
+            </p>
+          </div>
+        )}
 
-          {picked && !cadastre && (
-            <div className="bg-panel border border-line rounded-lg p-4">
-              <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Address resolved</div>
-              <div className="text-sm text-fg">{picked.pikkaadress}</div>
-              <div className="text-xs text-muted mt-1">
-                {picked.liikVal} · adr_id {picked.adr_id}
-              </div>
-              <div className="text-xs text-muted mt-2 font-mono">
-                {picked.viitepunkt_b.toFixed(5)}, {picked.viitepunkt_l.toFixed(5)}
-              </div>
-            </div>
-          )}
+        {cadastre && (
+          <PropertyCard
+            c={cadastre}
+            ehr={ehr}
+            ehrLoading={ehrLoading}
+            ehrAttempted={ehrAttempted}
+            ehrError={ehrError}
+          />
+        )}
 
-          <TunnusLookup onLookup={handleTunnusLookup} />
-        </aside>
-      </div>
+        <TunnusLookup onLookup={handleTunnusLookup} />
+      </main>
 
-      <footer className="border-t border-line text-xs text-muted py-4 px-6 max-w-7xl mx-auto w-full">
-        Built on free Estonian open data. v2: live EHR building data integration.
-        See <a href="https://github.com/" className="text-accent hover:underline">code</a> ·
-        Not a substitute for legal or financial advice.
+      {/* ============== FOOTER ============== */}
+      <footer className="border-t border-rule">
+        <div className="max-w-[72rem] mx-auto px-6 sm:px-10 py-8 flex flex-col sm:flex-row sm:items-baseline gap-3 justify-between text-[12.5px] text-muted">
+          <p>
+            <span className="font-display text-ink">juured.com</span>{" "}
+            · built on free Estonian open data. Not a substitute for legal or financial advice.
+          </p>
+          <p className="eyebrow text-faint">v2.0 · {new Date().getFullYear()}</p>
+        </div>
       </footer>
-    </main>
+    </>
   );
 }
 
 function EmptyState({ onTryTunnus }: { onTryTunnus: (t: string) => void }) {
   return (
-    <div className="bg-panel border border-line rounded-lg p-6">
-      <h2 className="text-base font-semibold mb-2">Find a property</h2>
-      <p className="text-sm text-muted mb-4 leading-relaxed">
-        Type any Estonian address above. We&rsquo;ll resolve it via In-AKS, fetch the
-        cadastral record from Maa-amet, and the building record (energy class,
-        kasutusluba, build year, heating) from the live Ehitisregister API.
-      </p>
-      <div className="bg-bg/60 border border-line rounded p-3 text-xs text-muted">
-        <div className="font-mono text-fg mb-1">Try the famous example:</div>
+    <div className="max-w-sheet mx-auto">
+      <p className="eyebrow text-muted">Or look up by id</p>
+      <div className="mt-5 grid sm:grid-cols-2 gap-6">
         <button
           onClick={() => onTryTunnus("78401:001:0215")}
-          className="text-accent hover:underline font-mono"
+          className="text-left group"
         >
-          78401:001:0215
+          <p className="eyebrow text-faint group-hover:text-ink transition-colors">Cadastral id</p>
+          <p className="mt-1 font-mono text-[15px] text-ink group-hover:text-accent transition-colors">78401:001:0215</p>
+          <p className="mt-1 text-sm text-muted">Viljandi mnt 47, Nõmme, Tallinn</p>
         </button>
-        <span className="ml-2">— Viljandi mnt 47, Nõmme, Tallinn</span>
-      </div>
-      <div className="bg-bg/60 border border-line rounded p-3 text-xs text-muted mt-2">
-        <div className="font-mono text-fg mb-1">Or try an office building (has energy cert):</div>
         <button
           onClick={() => onTryTunnus("120221727")}
-          className="text-accent hover:underline font-mono"
+          className="text-left group"
         >
-          120221727
+          <p className="eyebrow text-faint group-hover:text-ink transition-colors">EHR building id</p>
+          <p className="mt-1 font-mono text-[15px] text-ink group-hover:text-accent transition-colors">120221727</p>
+          <p className="mt-1 text-sm text-muted">Mustamäe tee 51, Tallinn (has energy class)</p>
         </button>
-        <span className="ml-2">— Mustamäe tee 51, Tallinn</span>
       </div>
     </div>
   );
@@ -254,9 +244,10 @@ function EmptyState({ onTryTunnus }: { onTryTunnus: (t: string) => void }) {
 
 function TunnusLookup({ onLookup }: { onLookup: (t: string) => void }) {
   return (
-    <details className="bg-panel border border-line rounded-lg p-4 group">
-      <summary className="cursor-pointer text-sm text-fg select-none">
-        Or look up by id (tunnus or ehr_code)
+    <details className="max-w-sheet mx-auto mt-16 group border-t border-rule pt-6">
+      <summary className="cursor-pointer eyebrow text-muted hover:text-ink transition-colors list-none flex items-center gap-2">
+        <span className="inline-block w-3 h-px bg-current transition-all group-open:rotate-90 origin-center" />
+        Look up directly by cadastral id or EHR building id
       </summary>
       <form
         onSubmit={(e) => {
@@ -264,16 +255,18 @@ function TunnusLookup({ onLookup }: { onLookup: (t: string) => void }) {
           const v = (e.currentTarget.elements.namedItem("t") as HTMLInputElement).value.trim();
           if (v) onLookup(v);
         }}
-        className="mt-3 flex gap-2"
+        className="mt-6 flex gap-3"
       >
         <input
           name="t"
           placeholder="e.g. 78401:001:0215  or  120221727"
-          className="flex-1 bg-bg border border-line rounded px-2 py-1.5 text-sm font-mono outline-none focus:border-accent"
+          className="flex-1 bg-field border border-rule px-3 py-2.5 font-mono text-[14px]
+                     focus:border-ink outline-none transition-colors"
         />
         <button
           type="submit"
-          className="bg-accent text-bg text-sm font-semibold px-3 py-1.5 rounded hover:bg-accent/90 transition"
+          className="bg-ink text-paper text-[13px] font-semibold tracking-wider uppercase
+                     px-5 py-2.5 hover:bg-accent transition-colors"
         >
           Go
         </button>
