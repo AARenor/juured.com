@@ -22,7 +22,15 @@ export function estLambertToWgs84(x: number, y: number): [number, number] {
 // discovered by mining the swagger UI JS bundle.
 // Public endpoints, no auth, returns full building record.
 // Join key: ehr_code (returned by In-AKS as the address `tunnus` field)
-const EHR_BUILDING = "https://livekluster.ehr.ee/api/building/v2/buildingData";
+//
+// We go through our own /api/ehr/[code] proxy because EHR sits behind
+// Cloudflare and its CORS behavior is inconsistent. The proxy is
+// same-origin from the browser and adds edge caching.
+
+const isBrowser = typeof window !== "undefined";
+const EHR_BUILDING = isBrowser
+  ? "/api/ehr" // use same-origin proxy
+  : "https://livekluster.ehr.ee/api/building/v2/buildingData";
 
 export type EhrEnergy = {
   energiaKlass: string | null;
@@ -61,10 +69,13 @@ export type EhrBuilding = {
 
 export async function getBuilding(ehrCode: string, signal?: AbortSignal): Promise<EhrBuilding | null> {
   if (!ehrCode) return null;
-  const u = new URL(EHR_BUILDING);
-  u.searchParams.set("ehr_code", ehrCode);
+  // Browser: use our /api/ehr/[code] same-origin proxy.
+  // SSR: call EHR directly.
+  const url = isBrowser
+    ? `${EHR_BUILDING}/${encodeURIComponent(ehrCode)}`
+    : `${EHR_BUILDING}?ehr_code=${encodeURIComponent(ehrCode)}`;
   try {
-    const r = await fetch(u.toString(), {
+    const r = await fetch(url, {
       signal,
       headers: { Accept: "application/json" },
     });
@@ -229,12 +240,22 @@ export async function getCadastre(id: string, signal?: AbortSignal): Promise<Cad
   if (!id.includes(":")) {
     throw new Error(`Not a cadastral id (no colons): ${id}. Use EHR code via getBuilding() first.`);
   }
-  const r = await fetch(`${CADASTRE}/${encodeURIComponent(id)}`, {
+  // Browser: use our /api/cadastre/[tunnus] same-origin proxy
+  // (the cadastre API returns 403 when Origin is set).
+  // SSR: call cadastre directly.
+  const isBrowser = typeof window !== "undefined";
+  const url = isBrowser
+    ? `/api/cadastre/${encodeURIComponent(id)}`
+    : `${CADASTRE}/${encodeURIComponent(id)}`;
+  const r = await fetch(url, {
     signal,
     headers: { Accept: "application/json" },
   });
   if (r.status === 404) throw new Error("Cadastral id not found");
-  if (!r.ok) throw new Error(`Cadastre API failed: ${r.status}`);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Cadastre API failed: ${r.status} ${body.slice(0, 100)}`);
+  }
   return (await r.json()) as CadastreRecord;
 }
 
